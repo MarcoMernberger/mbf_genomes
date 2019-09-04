@@ -3,6 +3,7 @@ from pathlib import Path
 from .base import GenomeBase, include_in_downloads, class_with_downloads
 from .common import reverse_complement, iter_fasta, wrappedIterator, EukaryoticCode
 from mbf_externals.prebuild import PrebuildFileInvariantsExploding
+import pandas_msgpack
 
 
 @class_with_downloads
@@ -169,7 +170,7 @@ class FileBasedGenome(GenomeBase):
 
         def dump(output_filename):
             df = callback_function(self)
-            df.to_msgpack(output_filename)
+            pandas_msgpack.to_msgpack(output_filename, df)
 
         j = ppg.FileGeneratingJob(out_dir / filename, dump).depends_on(
             ppg.FunctionInvariant(out_dir / filename / property_name, callback_function)
@@ -225,12 +226,12 @@ class InteractiveFileBasedGenome(GenomeBase):
         if not ppg.util.inside_ppg():
             if not Path(filename).exists():  # pragma: no branch
                 df = callback_function(self)
-                df.to_msgpack(out_dir / filename)
+                pandas_msgpack.to_msgpack(out_dir / filename, df)
         else:
 
             def dump(output_filename):
                 df = callback_function(self)
-                df.to_msgpack(output_filename)
+                pandas_msgpack.to_msgpack(output_filename, df)
 
             j = ppg.FileGeneratingJob(out_dir / filename, dump).depends_on(
                 ppg.FunctionInvariant(

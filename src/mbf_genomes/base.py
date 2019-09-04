@@ -8,6 +8,9 @@ from .gene import Gene, Transcript
 from mbf_externals.prebuild import PrebuildFileInvariantsExploding
 from mbf_externals.util import lazy_method
 import weakref
+import pandas_msgpack
+
+pd.read_msgpack = pandas_msgpack.read_msgpack
 
 dp, X = dppd()
 
@@ -111,7 +114,7 @@ def msgpack_unpacking_class(cls):
                 setattr(cls, job_name, gen_job)
             else:  # pragma: no cover
                 pass
-    if hasattr(cls, '_msg_pack_properties'):
+    if hasattr(cls, "_msg_pack_properties"):
         msg_pack_properties.extend(cls._msg_pack_properties)
     cls._msg_pack_properties = msg_pack_properties
     return cls
@@ -266,14 +269,14 @@ class GenomeBase(ABC):
         with pysam.FastaFile(str(self.find_file("pep.fasta"))) as f:
             return f.fetch(protein_id)
 
-    def get_additional_gene_gtf_filenames(self):
+    def get_additional_gene_gtfs(self):
         return []
 
     def get_gtf(self, features=[]):
         import mbf_gtf
 
         filenames = [self.find_file("genes.gtf")]
-        filenames.extend(self.get_additional_gene_gtf_filenames())
+        filenames.extend(self.get_additional_gene_gtfs())
         dfs = {}
         for gtf_filename in filenames:
             if gtf_filename is None:
@@ -559,6 +562,8 @@ class GenomeBase(ABC):
                 if estart < start or estop > stop:
                     raise ValueError(
                         f"Exon outside of transcript: {transcript_stable_id}"
+                        f"\ngene was {start}..{stop}"
+                        f"\nexon was {estart}..{estop}"
                     )
             gene_info = genes[gene_stable_id]
             if start < gene_info.start or stop > gene_info.stop:
@@ -624,7 +629,7 @@ class GenomeBase(ABC):
     @property
     def gtf_dependencies(self):
         res = self.gene_gtf_dependencies
-        additional = self.get_additional_gene_gtf_filenames()
+        additional = self.get_additional_gene_gtfs()
         if additional:
             res.append(
                 PrebuildFileInvariantsExploding(

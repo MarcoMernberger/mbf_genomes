@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 import pandas as pd
 import mbf_externals
+from mbf_externals.prebuild import PrebuildFileInvariantsExploding
 from mbf_externals.util import (
     download_file_and_gunzip,
     # download_file_and_gzip,
@@ -19,6 +20,26 @@ from .base import (
 )
 import pypipegraph as ppg
 from .common import EukaryoticCode
+import pandas_msgpack
+
+
+def download_gunzip_and_attach(url, unzipped_filename, files_to_attach):
+    import shutil
+    import gzip
+    import tempfile
+
+    tf = tempfile.NamedTemporaryFile(suffix=".gz")
+    download_file(url, tf)
+    tf.flush()
+
+    attach = b""
+    for f in files_to_attach:
+        attach += Path(f).read_bytes()
+
+    with gzip.GzipFile(tf.name, "rb") as gz_in:
+        with open(unzipped_filename, "wb") as op:
+            shutil.copyfileobj(gz_in, op)
+            op.write(attach)
 
 
 def EnsemblGenome(species, revision, prebuild_manager=None):
@@ -59,6 +80,9 @@ class _EnsemblGenome(GenomeBase):
         self.genetic_code = EukaryoticCode
         self.download_genome()
         self._seq_region_is_canonical = {}
+
+    def __repr__(self):
+        return f"EnsemblGenome({self.species}, {self.revision})"
 
     @include_in_downloads
     def _pb_find_server(self):
@@ -126,7 +150,28 @@ class _EnsemblGenome(GenomeBase):
                     / "data"
                     / "ribosomal_genes_mm10.gtf.gz.full.gtf.gz"
                 ]
+        elif self.species == "Ustilago_maydis":
+            return [
+                Path(__file__).parent.parent.parent
+                / "data"
+                / "ustilago_maydis_a2_locus.gff"
+            ]
         return []
+
+    def get_additional_fastas(self):
+        """Add additional fasta files to the genome.
+
+        They are considered true chromosomes if 'chromosome: something'
+        is in the fasta description line.
+        """
+
+        if self.species == "Ustilago_maydis":
+            return [
+                Path(__file__).parent.parent.parent
+                / "data"
+                / "ustilago_maydis_a2_locus.fasta"
+            ]
+        return None
 
     @property
     def gene_gtf_dependencies(self):
@@ -134,15 +179,36 @@ class _EnsemblGenome(GenomeBase):
 
     @include_in_downloads
     def _pb_download_genome_fasta(self):
-        return self._pb_download_and_gunzip(
-            "dna",
-            "fasta/" + self.species.lower() + "/dna/",
-            (
-                fr"{self.species}\..+\.dna.primary_assembly.fa.gz",
-                fr"{self.species}\..+\.dna.toplevel.fa.gz",
-            ),
-            "genome.fasta",
-        )
+
+        additional_fastas = self.get_additional_fastas()
+        if additional_fastas:
+            return (
+                self._pb_download(
+                    pb_name="dna",
+                    url="fasta/" + self.species.lower() + "/dna/",
+                    regexps=(
+                        fr"{self.species}\..+\.dna.primary_assembly.fa.gz",
+                        fr"{self.species}\..+\.dna.toplevel.fa.gz",
+                    ),
+                    output_filename="genome.fasta",
+                    download_func=lambda url, unzipped_filename: download_gunzip_and_attach(
+                        url, unzipped_filename, additional_fastas
+                    ),
+                ).depends_on(
+                    [PrebuildFileInvariantsExploding(self.name + '_fasta_deps', additional_fastas)]
+                ),
+            )
+
+        else:
+            return self._pb_download_and_gunzip(
+                "dna",
+                "fasta/" + self.species.lower() + "/dna/",
+                (
+                    fr"{self.species}\..+\.dna.primary_assembly.fa.gz",
+                    fr"{self.species}\..+\.dna.toplevel.fa.gz",
+                ),
+                "genome.fasta",
+            )
 
     @include_in_downloads
     def _pb_extract_keys_from_genome(self):
@@ -303,7 +369,7 @@ class _EnsemblGenome(GenomeBase):
     def _msg_pack_job(self, property_name, filename, callback_function):
         def dump(output_filename):
             df = callback_function(self)
-            df.to_msgpack(output_filename / filename)
+            pandas_msgpack.to_msgpack(output_filename / filename, df)
 
         j = self.prebuild_manager.prebuild(
             f"ensembl/{self.species}_{self.revision}/{property_name}",
@@ -519,15 +585,15 @@ class _EnsemblGenome(GenomeBase):
                 # known issue - return basically any of the candidates on alternate regions, but be consistent.
                 # return sorted(ag_candidates)[0]
                 raise ValueError("No primary gene found for %s" % name)
-            else:
+            else:  # pragma: no cover
                 raise ValueError(
                     "Multiple gene on primary assemblies found for %s" % name
                 )
-        elif len(ag_ids) == 0 and len(name_candidates) == 1:
+        elif len(ag_ids) == 0 and len(name_candidates) == 1:  # pragma: no cover
             # another easy case, there are no alternatives
             return list(name_candidates)[0]
         else:
-            raise ValueError(
+            raise ValueError(  # pragma: no cover
                 "Could not determine canonical gene for '%s'. use name_to_gene_ids()"
                 " and have a look yourself (don't forget the allele groups).\n"
                 "Name candidates: %s\n"

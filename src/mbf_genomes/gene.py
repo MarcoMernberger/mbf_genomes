@@ -129,7 +129,6 @@ class Transcript:
         exons = sorted(self.exons_tuples)
         return IntervalSet.from_tuples(exons).invert(gene_start, gene_stop).to_tuples()
 
-
     @property
     def cdna(self):
         """Get the cdna sequence as defined by cdna.fasta"""
@@ -143,10 +142,12 @@ class Transcript:
         unlike cdna, this is build dynamically from the genome_sequence 
         and exon definition and is available for non-protein coding transcripts
         """
-        seq = "".join([
-            self.genome.get_genome_sequence(self.chr, start, stop) for (start, stop) in self.exons]
-                      )
+        seq = "".join(
+            [
+                self.genome.get_genome_sequence(self.chr, start, stop)
+                for (start, stop) in self.exons
+            ]
+        )
         if self.strand == -1:
             seq = reverse_complement(seq)
         return seq
-
